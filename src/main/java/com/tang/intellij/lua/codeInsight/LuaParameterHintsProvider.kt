@@ -42,8 +42,6 @@ import java.util.stream.Collectors
 class LuaParameterHintsProvider : InlayParameterHintsProvider {
 
     companion object {
-        private val log: Logger = Logger.getInstance("JOCHEM")
-
         private val ARGS_HINT = Option("lua.hints.show_args_type",
                 "Show argument name hints",
                 true)

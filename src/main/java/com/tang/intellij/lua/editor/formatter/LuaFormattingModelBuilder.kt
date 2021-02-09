@@ -50,7 +50,6 @@ class LuaFormattingModelBuilder : FormattingModelBuilder {
         val commonSettings = settings.getCommonSettings(LuaLanguage.INSTANCE)
 
         return SpacingBuilder(settings, LuaLanguage.INSTANCE)
-                .before(END).lineBreakInCode()
                 .after(DO).spaces(1)
                 .after(THEN).spaces(1)
                 .after(ELSE).spaces(1)
