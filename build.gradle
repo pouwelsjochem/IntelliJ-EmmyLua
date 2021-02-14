@@ -87,10 +87,16 @@ versions.each { shortVer, cfg ->
 
 task buildAll(dependsOn: [build_201, build_202, build_203])
 
+repositories {
+    mavenCentral()
+    jcenter()
+}
+
 dependencies {
     compile fileTree(dir: "libs", includes: ["*.jar"])
 }
 
+sourceCompatibility = 1.8
 sourceSets {
     main {
         java.srcDirs 'gen', 'src/main/compat'
