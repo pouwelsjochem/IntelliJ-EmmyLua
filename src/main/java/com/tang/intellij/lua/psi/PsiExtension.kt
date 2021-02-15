@@ -35,6 +35,7 @@ import com.tang.intellij.lua.search.SearchContext
 import com.tang.intellij.lua.stubs.LuaFuncBodyOwnerStub
 import com.tang.intellij.lua.stubs.index.LuaClassMemberIndex
 import com.tang.intellij.lua.ty.*
+import java.util.function.Consumer
 
 /**
  * 1.
@@ -79,22 +80,7 @@ private fun LuaExpr.shouldBeInternal(context: SearchContext): ITy {
     } else if (p1 is LuaArgs) {
         val p2 = p1.parent
         if (p2 is LuaCallExpr) {
-            val idx = p1.getIndexFor(this)
-            val fTy = infer(p2.expr, context)
-            var ret: ITy = Ty.UNKNOWN
-            fTy.each {
-                if (it is ITyFunction) {
-                    it.process { signature ->
-                        var solvedSignature = signature
-                        val substitutor = p2.createSubstitutor(solvedSignature, context)
-                        if (substitutor != null) solvedSignature = solvedSignature.substitute(substitutor)
-
-                        ret = ret.union(solvedSignature.getParamTyEx(p2, idx))
-                        true
-                    }
-                }
-            }
-            return ret
+            return this.inferGenericTypeRecursive(p1, p2, context) ?: Ty.UNKNOWN;
         }
     } else if (p1 is LuaTableField) {
         val fieldName = p1.name
@@ -110,6 +96,37 @@ private fun LuaExpr.shouldBeInternal(context: SearchContext): ITy {
         }
     }
     return Ty.UNKNOWN
+}
+
+private fun LuaExpr.inferGenericTypeRecursive(args: LuaArgs, callExpr: LuaCallExpr, context: SearchContext): ITy? {
+    val idx = args.getIndexFor(this)
+
+    var ret: ITy = Ty.UNKNOWN
+    val fTy = infer(callExpr.expr, context)
+    fTy.each {
+        if (it is ITyFunction) {
+            it.process { signature ->
+                var solvedSignature = signature
+                val substitutor = callExpr.createSubstitutor(solvedSignature, context)
+                if (substitutor != null) solvedSignature = solvedSignature.substitute(substitutor)
+
+                ret = ret.union(solvedSignature.getParamTyEx(callExpr, idx))
+                true
+            }
+        }
+    }
+
+    if (ret != Ty.UNKNOWN) {
+        return ret;
+    } else {
+        // TODO: don't know which parent or child to look for so we can search recursively
+        val parentWhichShouldBeAbleToInfer = PsiTreeUtil.getParentOfType(callExpr, LuaArgs::class.java)
+        return if (parentWhichShouldBeAbleToInfer != null && parentWhichShouldBeAbleToInfer.parent is LuaCallExpr) {
+            this.inferGenericTypeRecursive(args, parentWhichShouldBeAbleToInfer.parent as LuaCallExpr, context)
+        } else {
+            null;
+        }
+    }
 }
 
 fun LuaExpr.shouldBe(context: SearchContext): ITy {
@@ -275,10 +292,28 @@ val LuaFuncBodyOwner.tyParams: Array<TyParameter> get() {
 
     val list = mutableListOf<TyParameter>()
     if (this is LuaCommentOwner) {
-        val genericDefList = comment?.findTags(LuaDocGenericDef::class.java)
-        genericDefList?.forEach { it.name?.let { name -> list.add(TyParameter(name, it.classNameRef?.text)) } }
+        forEachGenericDefTypeRecursive(this, {
+            it.name?.let { name -> list.add(TyParameter(name, it.classNameRef?.text)) }
+        })
     }
+
     return list.toTypedArray()
+}
+
+private fun forEachGenericDefTypeRecursive(funcBodyOwner: LuaFuncBodyOwner, funcBodyOwnerConsumer: Consumer<LuaDocGenericDef>) {
+    if (funcBodyOwner is LuaCommentOwner) {
+        var genericDefList = funcBodyOwner.comment?.findTags(LuaDocGenericDef::class.java)
+        if (genericDefList != null) {
+            for (genericDef in genericDefList) {
+                funcBodyOwnerConsumer.accept(genericDef)
+            }
+        }
+    }
+
+    val parentFuncBodyOwner = PsiTreeUtil.getParentOfType(funcBodyOwner, LuaFuncBodyOwner::class.java)
+    if (parentFuncBodyOwner != null) {
+        forEachGenericDefTypeRecursive(parentFuncBodyOwner, funcBodyOwnerConsumer)
+    }
 }
 
 enum class LuaLiteralKind {

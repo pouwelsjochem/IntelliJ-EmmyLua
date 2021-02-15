@@ -24,7 +24,11 @@ import com.tang.intellij.lua.comment.LuaCommentUtil
 import com.tang.intellij.lua.comment.psi.LuaDocClassNameRef
 import com.tang.intellij.lua.comment.psi.LuaDocFunctionTy
 import com.tang.intellij.lua.comment.psi.LuaDocGenericDef
+import com.tang.intellij.lua.comment.psi.LuaDocPsiElement
+import com.tang.intellij.lua.psi.LuaCommentOwner
 import com.tang.intellij.lua.psi.LuaElementFactory
+import com.tang.intellij.lua.psi.LuaFuncBodyOwner
+import com.tang.intellij.lua.psi.LuaParametersOwner
 import com.tang.intellij.lua.psi.search.LuaShortNamesManager
 import com.tang.intellij.lua.search.SearchContext
 
@@ -47,22 +51,38 @@ class LuaClassNameReference(element: LuaDocClassNameRef) : PsiReferenceBase<LuaD
     }
 
     override fun resolve(): PsiElement? {
-        val name = myElement.text
-        // generic in docFunction
-        val fn = PsiTreeUtil.getParentOfType(myElement, LuaDocFunctionTy::class.java)
-        var genericDefList: Collection<LuaDocGenericDef>? = fn?.genericDefList
-        if (genericDefList == null || genericDefList.isEmpty()) {
-            // generic in comments ?
-            val comment = LuaCommentUtil.findContainer(myElement)
-            genericDefList = comment.findTags(LuaDocGenericDef::class.java)
+        val genericTypeName = myElement.text
+
+        val existingTypeDef = LuaShortNamesManager.getInstance(myElement.project).findTypeDef(genericTypeName, SearchContext.get(myElement.project))
+        if (existingTypeDef != null) {
+            return existingTypeDef
+        } else {
+            val funcBodyOwnerOfElement = PsiTreeUtil.getParentOfType(element, LuaFuncBodyOwner::class.java)
+            return if (funcBodyOwnerOfElement != null) {
+                resolveGenericTypeDefRecursive(genericTypeName, funcBodyOwnerOfElement)
+            } else {
+                null
+            }
+        }
+    }
+
+    private fun resolveGenericTypeDefRecursive(genericTypeName: String, element: LuaFuncBodyOwner): PsiElement? {
+        if (element is LuaCommentOwner) {
+            var genericDefList = element.comment?.findTags(LuaDocGenericDef::class.java)
+            if (genericDefList != null) {
+                for (genericDef in genericDefList) {
+                    if (genericDef.name == genericTypeName)
+                        return genericDef
+                }
+            }
         }
 
-        for (genericDef in genericDefList) {
-            if (genericDef.name == name)
-                return genericDef
+        val parentFuncBodyOwner = PsiTreeUtil.getParentOfType(element, LuaFuncBodyOwner::class.java)
+        return if (parentFuncBodyOwner != null) {
+            resolveGenericTypeDefRecursive(genericTypeName, parentFuncBodyOwner)
+        } else {
+            null;
         }
-
-        return LuaShortNamesManager.getInstance(myElement.project).findTypeDef(name, SearchContext.get(myElement.project))
     }
 
     override fun getVariants(): Array<Any> = emptyArray()
